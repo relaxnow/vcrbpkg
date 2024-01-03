@@ -1,9 +1,12 @@
 package vcrbpkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"time"
 
 	"github.com/relaxnow/vcrbpkg/internal/pkg/logger"
 )
@@ -37,10 +40,16 @@ func Package(args []string) error {
 	if err != nil {
 		return err
 	}
-	ensureIsSupportedRailsVersion(repoFolder)
-	installVeracodeGem(repoFolder)
-	testRailsServe(repoFolder)
-	runVeracodePrepare(repoFolder)
+	checkIsSupportedRailsVersion(repoFolder, rubyVersion)
+	err = installVeracodeGem(repoFolder, rubyVersion)
+	if err != nil {
+		return err
+	}
+	checkRailsServer(repoFolder, rubyVersion)
+	runVeracodePrepare(repoFolder, rubyVersion)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -146,10 +155,10 @@ func cloneRepo(urlOrFolder string) (string, error) {
 	}
 
 	// Use the temporary directory
-	logger.Infof("Temporary directory:", temporaryDir)
+	logger.Infof("Temporary directory: %s", temporaryDir)
 
 	// Run 'git clone' command
-	cmd := exec.Command("git", "clone", urlOrFolder, temporaryDir)
+	cmd := exec.Command("git", "clone", "--depth", "1", urlOrFolder, temporaryDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -165,13 +174,50 @@ func cloneRepo(urlOrFolder string) (string, error) {
 	return temporaryDir, nil
 }
 
-func ensureIsSupportedRailsVersion(repoFolder string) {
-	// TODO: Run bundle show rails and parse version
+func checkIsSupportedRailsVersion(repoFolder string, rubyVersion Version) {
+	cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "show", "rails")
+	cmd.Dir = repoFolder
+
+	logger.Info("Detecting Rails version with Bundler")
+
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		logger.WithError(err).Errorf("failed to bundle show rails")
+		logger.Warn("failed to run bundle show rails, unable to verify rails version, hoping for the best and continuing")
+		return
+	}
+
+	logger.Infof("bundle show rails output: '%s'", output)
+
+	// Define a regular expression pattern to match the version number
+	re := regexp.MustCompile(`rails-(\d+\.\d+\.\d+)`)
+
+	// Find the first match in the input string
+	match := re.FindStringSubmatch(string(output))
+
+	// Check if a match is found
+	if len(match) < 2 {
+		logger.Warnf("Version number not found in the input string: %s", output)
+		logger.Warn("failed to parse output of bundle show rails, unable to verify rails version, hoping for the best and continuing")
+		return
+	}
+
+	// The version number is captured in the first submatch group
+	versionNumber := match[1]
+	railsVersion := parseRubyVersion(versionNumber)
+	if railsVersion.Major >= 3 && railsVersion.Major <= 6 || (railsVersion.Major == 7 && railsVersion.Minor == 0) {
+		logger.Infof("Supported Rails version: %s", versionNumber)
+	} else {
+		logger.Warnf("Unsupported Rails version: " + versionNumber)
+		logger.Warn("Unsupported Rails version, hoping for the best and continuing")
+	}
 }
 
 func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 	// Run 'rvm install' command
 	cmd := exec.Command("rvm", "install", rubyVersion.String())
+	cmd.Dir = repoFolder
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -182,20 +228,120 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 		logger.WithError(err).Errorf("failed to  rvm install")
 		return fmt.Errorf("failed to rvm install %s", rubyVersion.String())
 	}
+
+	logger.Info("Installing Ruby version with RVM")
+
+	// Run 'rvm install' command
+	cmd3 := exec.Command("rvm", rubyVersion.String(), "do", "rvm", "gemset", "create", "veracode")
+	cmd3.Dir = repoFolder
+	cmd3.Stdout = os.Stdout
+	cmd3.Stderr = os.Stderr
+
+	err = cmd3.Run()
+	if err != nil {
+		logger.WithError(err).Errorf("failed to rvm use")
+		return fmt.Errorf("failed to rvm use %s@veracode --create", rubyVersion.String())
+	}
+
+	cmd2 := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "install")
+	cmd2.Dir = repoFolder
+	cmd2.Stdout = os.Stdout
+	cmd2.Stderr = os.Stderr
+
+	logger.Info("Using RVM ruby version")
+
+	err = cmd2.Run()
+	if err != nil {
+		logger.WithError(err).Errorf("failed to rvm use")
+		return fmt.Errorf("failed to rvm use %s@veracode bundle install", rubyVersion.String())
+	}
+
 	return nil
 }
 
-func testRailsServe(repoFolder string) {
-	// TODO: Test if `rails serve` doesn't crash
+func checkRailsServer(repoFolder string, rubyVersion Version) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "rvm", rubyVersion.String()+"@veracode", "do", "rails", "server")
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "RAILS_ENV=development")
+	cmd.Dir = repoFolder
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	logger.Info("Running rails server in development")
+
+	if err := cmd.Run(); err != nil {
+		logger.WithError(err).Info("rails server error")
+		if err.Error() == "signal: killed" {
+			logger.Infof("Server ran until getting killed, nice!")
+		} else {
+			logger.WithError(err).Warn("Unknown error, server failed")
+		}
+	}
 }
 
-func installVeracodeGem(repoFolder string) {
-	// # If Ruby < 2.4
-	// source 'https://rubygems.org'
-	// gem 'rubyzip', '~>1.0'
-	// bundle add veracode
+func installVeracodeGem(repoFolder string, rubyVersion Version) error {
+	if rubyVersion.Major < 2 || (rubyVersion.Major == 2 && rubyVersion.Minor <= 4) {
+		cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "add", "rubyzip", "--version", "~>1.0", "--source", "https://rubygems.org")
+		cmd.Dir = repoFolder
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		logger.Info("Ruby version < 2.4 detected, installing RubyZip 1.0")
+
+		err := cmd.Run()
+		if err != nil {
+			logger.WithError(err).Errorf("failed to rvm add rubyzip")
+			return fmt.Errorf("failed to bundle add rubyzip", rubyVersion.String())
+		}
+	}
+
+	cmd2 := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "show", "veracode")
+	cmd2.Dir = repoFolder
+
+	logger.Info("Checking for existence of 'veracode' gem")
+
+	output, err := cmd2.CombinedOutput()
+	if err != nil {
+		logger.WithError(err).Errorf("bundle show veracode failed, assuming it's not installed yet, output: %s", output)
+
+		cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "add", "veracode", "--source", "https://rubygems.org")
+		cmd.Dir = repoFolder
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		logger.Info("Installing veracode gem with Bundler")
+
+		err = cmd.Run()
+		if err != nil {
+			logger.WithError(err).Errorf("failed to rvm add veracode")
+			return fmt.Errorf("failed to bundle add veracode")
+		}
+	} else {
+		logger.Infof("Veracode gem already exists, skipping install, output of bundle show: %s", output)
+	}
+
+	return nil
 }
 
-func runVeracodePrepare(repoFolder string) {
-	// TODO: veracode prepare -vD
+func runVeracodePrepare(repoFolder string, rubyVersion Version) error {
+	cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "veracode", "prepare", "-vD")
+	cmd.Dir = repoFolder
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "RAILS_ENV=development")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	logger.Info("Running Veracode Prepare")
+
+	err := cmd.Run()
+	if err != nil {
+		logger.WithError(err).Errorf("failed to run veracode prepare")
+		return fmt.Errorf("failed run veracode prepare")
+	}
+
+	logger.Info("All done!")
+	return nil
 }
