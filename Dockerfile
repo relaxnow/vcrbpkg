@@ -4,7 +4,10 @@ FROM ruby
 # Copy everything to /app, it's better to use a mount though
 COPY . /app
 
-# Install bash for interactive shell access
+# See also: https://www.garron.me/en/linux/install-ruby-2-3-3-ubuntu.html
+RUN echo "deb http://deb.debian.org/debian-security/ bookworm-security main" >> /etc/apt/sources.list
+
+# Install useful tooling
 RUN apt-get update && apt-get install -y bash golang vim iputils-ping
 
 # RVM
