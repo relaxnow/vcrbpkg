@@ -38,7 +38,7 @@ var rootCmd = &cobra.Command{
 	Short: "Package Ruby on Rails applications for Veracode Static Analysis",
 	Args:  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs, validateURLorFilePath),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return vcrbpkg.Package(args)
+		return vcrbpkg.Package(args, outFile)
 	},
 	Example: "vcrbpkg /folder/to/clone OR vcrbpkg https://github.com/user/repo",
 }
@@ -74,10 +74,21 @@ func main() {
 }
 
 var logLevel string
+var outFile string
 
 func init() {
 	// Add a flag to set the log level
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Set the log level (debug, info, warn, error, fatal, panic)")
+	rootCmd.PersistentFlags().StringVar(
+		&logLevel,
+		"log-level",
+		"info",
+		"Set the log level (debug, info, warn, error, fatal, panic)")
+	// Add flag for optional copying of output zip file.
+	rootCmd.PersistentFlags().StringVar(
+		&outFile,
+		"out",
+		"",
+		"File to copy packaged application to (for example: /tmp/veracode/railsgoat.zip)")
 }
 
 func configureLogger() {

@@ -159,39 +159,39 @@ func (v1 Version) Equals(v2 Version) bool {
 
 func checkIsSupportedRubyVersion(rubyVersion Version) {
 	if rubyVersion.Equals(Version{Major: 1, Minor: 9, Patch: 3}) {
-		logger.Infof("Supported Ruby 1 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 1 version %s", rubyVersion.String())
 		return
 	}
 
 	if rubyVersion.Major == 2 && rubyVersion.Minor == 0 {
-		logger.Infof("Supported Ruby 2.0 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 2.0 version %s", rubyVersion.String())
 		return
 	}
 
-	if rubyVersion.Major == 2 && rubyVersion.Minor == 0 {
-		logger.Infof("Supported Ruby 2.1 version %s", rubyVersion.String())
+	if rubyVersion.Major == 2 && rubyVersion.Minor == 1 {
+		logger.Infof("Veracode Static Analysis supported Ruby 2.1 version %s", rubyVersion.String())
 		return
 	}
 
 	if rubyVersion.Major == 2 && rubyVersion.Minor >= 3 && rubyVersion.Minor <= 7 {
-		logger.Infof("Supported Ruby 2.3-2.7 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 2.3-2.7 version %s", rubyVersion.String())
 		return
 	}
 
 	if rubyVersion.Major == 3 && rubyVersion.Minor == 0 {
-		logger.Infof("Supported Ruby 3.0 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 3.0 version %s", rubyVersion.String())
 		return
 	}
 
 	if rubyVersion.Major == 3 && rubyVersion.Minor == 1 {
-		logger.Infof("Supported Ruby 3.1 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 3.1 version %s", rubyVersion.String())
 		return
 	}
 
 	if rubyVersion.Major == 3 && rubyVersion.Minor == 2 {
-		logger.Infof("Supported Ruby 3.2 version %s", rubyVersion.String())
+		logger.Infof("Veracode Static Analysis supported Ruby 3.2 version %s", rubyVersion.String())
 		return
 	}
 
-	logger.Warnf("Ruby version %s is not supported! Trying anyway...", rubyVersion.String())
+	logger.Warnf("Veracode Static Analysis unsupported Ruby version %s! Trying anyway...", rubyVersion.String())
 }

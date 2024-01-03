@@ -3,6 +3,7 @@ package vcrbpkg
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 	"github.com/relaxnow/vcrbpkg/internal/pkg/logger"
 )
 
-func Package(args []string) error {
+func Package(args []string, outFile string) error {
 	var repoFolder string
 	var rubyVersion Version
 
@@ -45,14 +46,17 @@ func Package(args []string) error {
 		return err
 	}
 	checkIsSupportedRailsVersion(repoFolder, rubyVersion)
-	railsEnv := testForBestEnv(repoFolder, rubyVersion)
-
 	if err = installVeracodeGem(repoFolder, rubyVersion); err != nil {
 		return err
 	}
+	railsEnv := testForBestEnv(repoFolder, rubyVersion)
 
-	if runVeracodePrepare(repoFolder, rubyVersion, railsEnv); err != nil {
+	packagedFile, err := runVeracodePrepare(repoFolder, rubyVersion, railsEnv)
+	if err != nil {
 		return err
+	}
+	if outFile != "" {
+		copyFile(packagedFile, outFile)
 	}
 	return nil
 }
@@ -179,7 +183,7 @@ func cloneRepo(urlOrFolder string) (string, error) {
 }
 
 func ensureHasRailsStructure(repoFolder string) error {
-	requiredFiles := []string{"app", "bin", "config", "public", "tmp", "vendor", "Gemfile"}
+	requiredFiles := []string{"app", "config", "public", "Gemfile"}
 
 	// Check if the required folders exist inside repoFolder
 	for _, requiredFile := range requiredFiles {
@@ -226,23 +230,42 @@ func checkIsSupportedRailsVersion(repoFolder string, rubyVersion Version) {
 	versionNumber := match[1]
 	railsVersion := parseRubyVersion(versionNumber)
 	if railsVersion.Major >= 3 && railsVersion.Major <= 6 || (railsVersion.Major == 7 && railsVersion.Minor == 0) {
-		logger.Infof("Supported Rails version: %s", versionNumber)
+		logger.Infof("Veracode Static Analysis supported Rails version: %s", versionNumber)
 	} else {
-		logger.Warnf("Unsupported Rails version: " + versionNumber)
-		logger.Warn("Unsupported Rails version, hoping for the best and continuing")
+		logger.Warnf("Veracode Static Analysis unsupported Rails version %s, hoping for the best and continuing", versionNumber)
 	}
 }
 
 func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
-	// Run 'rvm install' command
-	cmd := exec.Command("rvm", "install", rubyVersion.String())
-	cmd.Dir = repoFolder
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var cmd2 *exec.Cmd
+	if rubyVersion.Major == 2 {
+		// Install OpenSSL in RVM because the system OpenSSL might be incompatible
+		// See: https://blog.francium.tech/setting-up-ruby-2-7-6-on-ubuntu-22-04-fdb9560715f7
+		cmd := exec.Command("rvm", "pkg", "install", "openssl")
+		cmd.Dir = repoFolder
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		logger.Info("Installing OpenSSL for RVM")
+
+		err := cmd.Run()
+		if err != nil {
+			logger.WithError(err).Warnf("failed to install openssl for rvm")
+		}
+
+		// Run 'rvm install' command
+		// TODO: make with-openssl-dir use output of prev command
+		cmd2 = exec.Command("rvm", "install", "--autolibs=disabled", "--with-openssl-dir=/usr/local/rvm/usr/", rubyVersion.String())
+	} else {
+		cmd2 = exec.Command("rvm", "install", rubyVersion.String())
+	}
+	cmd2.Dir = repoFolder
+	cmd2.Stdout = os.Stdout
+	cmd2.Stderr = os.Stderr
 
 	logger.Info("Installing Ruby version with RVM")
 
-	err := cmd.Run()
+	err := cmd2.Run()
 	if err != nil {
 		logger.WithError(err).Errorf("failed to  rvm install")
 		return fmt.Errorf("failed to rvm install %s", rubyVersion.String())
@@ -258,29 +281,36 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 
 	err = cmd3.Run()
 	if err != nil {
-		logger.WithError(err).Errorf("failed to rvm use")
-		return fmt.Errorf("failed to rvm use %s@veracode --create", rubyVersion.String())
-	}
-
-	cmd2 := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "install")
-	cmd2.Dir = repoFolder
-	cmd2.Stdout = os.Stdout
-	cmd2.Stderr = os.Stderr
-
-	logger.Info("Using RVM ruby version")
-
-	err = cmd2.Run()
-	if err != nil {
-		logger.WithError(err).Errorf("failed to rvm use")
-		return fmt.Errorf("failed to rvm use %s@veracode bundle install", rubyVersion.String())
+		logger.WithError(err).Errorf("failed to create gemset")
+		return fmt.Errorf("failed to create gemset for ruby version: %s", rubyVersion.String())
 	}
 
 	return nil
 }
 
+// Test which environment works best to by running `rails server`
+// production is best because it does not have all the develoment tooling
+// but then typically production does not work without some setup.
 func testForBestEnv(repoFolder string, rubyVersion Version) string {
-	testEnvs := []string{"production", "development", "testing"}
+	testEnvs := []string{"production", "development", "test"}
 	for _, testEnv := range testEnvs {
+		var cmd4 *exec.Cmd
+		if testEnv == "production" {
+			cmd4 = exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "install", "--without", "development", "test")
+		} else {
+			cmd4 = exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "install")
+		}
+		cmd4.Dir = repoFolder
+		cmd4.Stdout = os.Stdout
+		cmd4.Stderr = os.Stderr
+
+		logger.Info("Doing Bundle Install")
+
+		err := cmd4.Run()
+		if err != nil {
+			logger.WithError(err).Warnf("failed to do bundle install, trying to run server anyway, will probably fail")
+		}
+
 		if testWithEnv(repoFolder, rubyVersion, testEnv) {
 			logger.Infof("Successfully verfied Rails environment %s, using it for Veracode Prepare", testEnv)
 			return testEnv
@@ -302,7 +332,7 @@ func testWithEnv(repoFolder string, rubyVersion Version, railsEnv string) bool {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	logger.Info("Running rails server in development")
+	logger.Infof("Running rails server in %s", railsEnv)
 
 	if err := cmd.Run(); err != nil {
 		logger.WithError(err).Info("rails server error")
@@ -319,8 +349,14 @@ func testWithEnv(repoFolder string, rubyVersion Version, railsEnv string) bool {
 }
 
 func installVeracodeGem(repoFolder string, rubyVersion Version) error {
+	// TODO: What if rubyzip is already installed?
 	if rubyVersion.Major < 2 || (rubyVersion.Major == 2 && rubyVersion.Minor <= 4) {
-		cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "add", "rubyzip", "--version", "~>1.0", "--source", "https://rubygems.org")
+		cmd := exec.Command(
+			"rvm", rubyVersion.String()+"@veracode", "do",
+			"bundle", "add", "rubyzip",
+			"--version", "~>1.0",
+			"--source", "https://rubygems.org",
+			"--skip-install")
 		cmd.Dir = repoFolder
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -334,16 +370,20 @@ func installVeracodeGem(repoFolder string, rubyVersion Version) error {
 		}
 	}
 
-	cmd2 := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "show", "veracode")
-	cmd2.Dir = repoFolder
-
 	logger.Info("Checking for existence of 'veracode' gem")
-
+	cmd2 := exec.Command(
+		"rvm", rubyVersion.String()+"@veracode", "do",
+		"bundle", "show", "veracode")
+	cmd2.Dir = repoFolder
 	output, err := cmd2.CombinedOutput()
 	if err != nil {
 		logger.WithError(err).Errorf("bundle show veracode failed, assuming it's not installed yet, output: %s", output)
 
-		cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "bundle", "add", "veracode", "--source", "https://rubygems.org")
+		cmd := exec.Command(
+			"rvm", rubyVersion.String()+"@veracode", "do",
+			"bundle", "add", "veracode",
+			"--source", "https://rubygems.org",
+			"--skip-install")
 		cmd.Dir = repoFolder
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -352,7 +392,7 @@ func installVeracodeGem(repoFolder string, rubyVersion Version) error {
 
 		err = cmd.Run()
 		if err != nil {
-			logger.WithError(err).Errorf("failed to rvm add veracode")
+			logger.WithError(err).Errorf("failed to bundle add veracode")
 			return fmt.Errorf("failed to bundle add veracode")
 		}
 	} else {
@@ -362,22 +402,45 @@ func installVeracodeGem(repoFolder string, rubyVersion Version) error {
 	return nil
 }
 
-func runVeracodePrepare(repoFolder string, rubyVersion Version, railsEnv string) error {
+func runVeracodePrepare(repoFolder string, rubyVersion Version, railsEnv string) (string, error) {
 	cmd := exec.Command("rvm", rubyVersion.String()+"@veracode", "do", "veracode", "prepare", "-vD")
 	cmd.Dir = repoFolder
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "RAILS_ENV="+railsEnv)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
 	logger.Info("Running Veracode Prepare, this may take a while")
 
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
+	logger.Info(string(output))
 	if err != nil {
 		logger.WithError(err).Errorf("failed to run veracode prepare")
-		return fmt.Errorf("failed run veracode prepare")
+		return "", fmt.Errorf("failed run veracode prepare")
 	}
 
 	logger.Info("All done!")
+	return "", nil
+}
+
+func copyFile(packagedFile, outFile string) error {
+	// Open the source file
+	src, err := os.Open(packagedFile)
+	if err != nil {
+		return fmt.Errorf("Error opening source file: %v", err)
+	}
+	defer src.Close()
+
+	// Create or truncate the destination file
+	dst, err := os.Create(outFile)
+	if err != nil {
+		return fmt.Errorf("Error creating destination file: %v", err)
+	}
+	defer dst.Close()
+
+	// Copy the contents from source to destination
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		return fmt.Errorf("Error copying file contents: %v", err)
+	}
+
 	return nil
 }
