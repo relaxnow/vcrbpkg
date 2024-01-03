@@ -38,8 +38,6 @@ var rootCmd = &cobra.Command{
 	Short: "Package Ruby on Rails applications for Veracode Static Analysis",
 	Args:  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs, validateURLorFilePath),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Your main command logic here
-		fmt.Println("Hello from your CLI tool!")
 		return vcrbpkg.Package(args)
 	},
 	Example: "vcrbpkg /folder/to/clone OR vcrbpkg https://github.com/user/repo",
