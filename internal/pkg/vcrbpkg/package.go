@@ -417,29 +417,64 @@ func runVeracodePrepare(repoFolder string, rubyVersion Version, railsEnv string)
 		return "", fmt.Errorf("failed run veracode prepare")
 	}
 
+	veracodePrepareFile, err := extractFilePath(string(output))
+
+	if err != nil {
+		logger.WithError(err).Errorf("Did not find packaged file in veracode prepare output")
+		return "", fmt.Errorf("did not find packaged file in veracode prepare output")
+	}
+
 	logger.Info("All done!")
-	return "", nil
+	return filepath.Join(repoFolder, veracodePrepareFile), nil
+}
+
+func extractFilePath(output string) (string, error) {
+	// Define a regular expression pattern to match the file path
+	re := regexp.MustCompile(`Please upload\s+(\S+)`)
+
+	// Find the first match in the output string
+	match := re.FindStringSubmatch(output)
+
+	// Check if a match is found
+	if len(match) < 2 {
+		return "", fmt.Errorf("file path not found in the output string")
+	}
+
+	// The file path is captured in the first submatch group
+	filePath := match[1]
+
+	return filePath, nil
 }
 
 func copyFile(packagedFile, outFile string) error {
+	outFile, err := filepath.Abs(outFile)
+	if err != nil {
+		logger.WithError(err).Errorf("Unable to create absolute path for %s", outFile)
+		return fmt.Errorf("unable to create absolute path for %s", outFile)
+	}
+
+	logger.Infof("Copying from %s => %s", packagedFile, outFile)
 	// Open the source file
 	src, err := os.Open(packagedFile)
 	if err != nil {
-		return fmt.Errorf("Error opening source file: %v", err)
+		logger.WithError(err).Errorf("Error opening source file %s", packagedFile)
+		return fmt.Errorf("error opening source file: %v", err)
 	}
 	defer src.Close()
 
 	// Create or truncate the destination file
 	dst, err := os.Create(outFile)
 	if err != nil {
-		return fmt.Errorf("Error creating destination file: %v", err)
+		logger.WithError(err).Errorf("Error creating destination file %s", outFile)
+		return fmt.Errorf("error creating destination file: %s", outFile)
 	}
 	defer dst.Close()
 
 	// Copy the contents from source to destination
 	_, err = io.Copy(dst, src)
 	if err != nil {
-		return fmt.Errorf("Error copying file contents: %v", err)
+		logger.WithError(err).Errorf("Error copying file contents")
+		return fmt.Errorf("error copying file contents")
 	}
 
 	return nil
