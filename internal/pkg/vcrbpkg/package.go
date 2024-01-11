@@ -261,7 +261,7 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 
 		// Run 'rvm install' command
 		// TODO: make with-openssl-dir use output of prev command
-		cmd2 = exec.Command("rvm", "install", "--autolibs=disabled", "--with-openssl-dir=/usr/local/rvm/usr/", rubyVersion.String())
+		cmd2 = exec.Command("rvm", "install", "--autolibs=disabled", "--with-openssl-dir=/usr/share/rvm/usr/", rubyVersion.String())
 	} else {
 		cmd2 = exec.Command("rvm", "install", rubyVersion.String())
 	}
