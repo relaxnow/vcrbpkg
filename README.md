@@ -41,7 +41,7 @@ On Linux with go get:
 ```sh
 export GOPATH=`go env GOPATH` &&
 export PATH="$GOPATH/bin:$PATH" &&
-go install github.com/relaxnow/vcrbpkg@latest
+go install github.com/relaxnow/vcrbpkg/cmd/vcrbpkg@latest
 ```
 
 ### Usage
