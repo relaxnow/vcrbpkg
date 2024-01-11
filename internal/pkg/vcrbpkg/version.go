@@ -157,6 +157,22 @@ func (v1 Version) Equals(v2 Version) bool {
 	return v1.Major == v2.Major && v1.Minor == v2.Major && v1.Patch == v2.Patch
 }
 
+func (v1 Version) LowerThan(v2 Version) bool {
+	// 3.0.0 > 2.0.0
+	if v1.Major > v2.Major {
+		return false
+	}
+	// 2.5.0 > 2.4.0
+	if v1.Major == v2.Major && v1.Minor > v2.Minor {
+		return false
+	}
+	// 2.4.0 == 2.4.0
+	if v1.Major == v2.Major && v1.Minor == v2.Minor && v1.Patch >= v2.Patch {
+		return false
+	}
+	return true
+}
+
 func checkIsSupportedRubyVersion(rubyVersion Version) {
 	if rubyVersion.Equals(Version{Major: 1, Minor: 9, Patch: 3}) {
 		logger.Infof("Veracode Static Analysis supported Ruby 1 version %s", rubyVersion.String())
