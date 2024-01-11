@@ -36,7 +36,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "vcrbpkg [url or filepath]",
 	Short: "Package Ruby on Rails applications for Veracode Static Analysis",
-	Args:  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs, validateURLorFilePath),
+	Args:  cobra.MatchAll(cobra.OnlyValidArgs, validateURLorFilePath),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return vcrbpkg.Package(args, outFile)
 	},
@@ -44,11 +44,12 @@ var rootCmd = &cobra.Command{
 }
 
 func validateURLorFilePath(cmd *cobra.Command, args []string) error {
+	var input string
 	if len(args) != 1 {
-		return fmt.Errorf("requires a single argument")
+		input = "."
+	} else {
+		input = args[0]
 	}
-
-	input := args[0]
 
 	// Check if it's a valid URL
 	_, err := url.ParseRequestURI(input)
