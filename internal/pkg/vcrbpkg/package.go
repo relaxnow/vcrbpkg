@@ -244,9 +244,9 @@ func checkIsSupportedRailsVersion(repoFolder string, rubyVersion Version) {
 
 func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 	var cmd2 *exec.Cmd
-	if rubyVersion.Major == 2 {
+	// https://wiki.archlinux.org/title/RVM#RVM_uses_wrong_OpenSSL_version
+	if rubyVersion.LowerThan(parseRubyVersion("3.0.0")) {
 		// Install OpenSSL in RVM because the system OpenSSL might be incompatible
-		// See: https://blog.francium.tech/setting-up-ruby-2-7-6-on-ubuntu-22-04-fdb9560715f7
 		cmd := exec.Command("rvm", "pkg", "install", "openssl")
 		cmd.Dir = repoFolder
 		cmd.Stdout = os.Stdout
