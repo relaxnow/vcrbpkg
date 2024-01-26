@@ -269,7 +269,7 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 			logger.Warn("No path after OpenSSL install? Guessing '/usr/local/rvm/usr/'")
 			filePath = "/usr/local/rvm/usr/"
 		} else {
-			filePath = match[1]
+			filePath = removeTrailingDots(match[1])
 			// Run 'rvm install' command
 			// TODO: make with-openssl-dir use output of prev command
 			logger.Infof("Running rvm install --autolibs=disabled --with-openssl-dir=%s %s", filePath, rubyVersion.String())
@@ -323,6 +323,12 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 	}
 
 	return nil
+}
+
+// Function to remove trailing dots
+func removeTrailingDots(input string) string {
+	re := regexp.MustCompile(`\.+$`)
+	return re.ReplaceAllString(input, "")
 }
 
 // Test which environment works best to by running `rails server`
