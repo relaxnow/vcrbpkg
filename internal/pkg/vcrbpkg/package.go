@@ -266,7 +266,7 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 
 		var filePath string
 		if len(match) < 2 {
-			logger.Warn("No path after OpenSSL install? Skipping")
+			logger.Warn("No path after OpenSSL install? Guessing '/usr/local/rvm/usr/'")
 			filePath = "/usr/local/rvm/usr/"
 		} else {
 			filePath = match[1]
