@@ -243,42 +243,55 @@ func checkIsSupportedRailsVersion(repoFolder string, rubyVersion Version) {
 }
 
 func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
-	var cmd2 *exec.Cmd
+	var rvmInstallCmd *exec.Cmd
+
 	// https://wiki.archlinux.org/title/RVM#RVM_uses_wrong_OpenSSL_version
 	if rubyVersion.LowerThan(parseRubyVersion("3.0.0")) {
 		// Install OpenSSL in RVM because the system OpenSSL might be incompatible
-		cmd := exec.Command("rvm", "pkg", "install", "openssl")
-		cmd.Dir = repoFolder
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		opensslInstallCmd := exec.Command("rvm", "pkg", "install", "openssl")
+		opensslInstallCmd.Dir = repoFolder
+		var opensslInstallSavedOutput saveOutput
+		opensslInstallCmd.Stdout = &opensslInstallSavedOutput
+		opensslInstallCmd.Stderr = &opensslInstallSavedOutput
 
 		logger.Info("Installing OpenSSL for RVM")
 
-		err := cmd.Run()
+		err := opensslInstallCmd.Run()
 		if err != nil {
 			logger.WithError(err).Warnf("failed to install openssl for rvm")
 		}
 
-		// Run 'rvm install' command
-		// TODO: make with-openssl-dir use output of prev command
-		cmd2 = exec.Command("rvm", "install", "--autolibs=disabled", "--with-openssl-dir=/usr/share/rvm/usr/", rubyVersion.String())
+		re := regexp.MustCompile(`Installing openssl to (.+)\.\.\.`)
+		match := re.FindStringSubmatch(string(opensslInstallSavedOutput.savedOutput))
+
+		var filePath string
+		if len(match) < 2 {
+			logger.Warn("No path after OpenSSL install? Skipping")
+			filePath = "/usr/local/rvm/usr/"
+		} else {
+			filePath = match[1]
+			// Run 'rvm install' command
+			// TODO: make with-openssl-dir use output of prev command
+			logger.Infof("Running rvm install --autolibs=disabled --with-openssl-dir=%s %s", filePath, rubyVersion.String())
+		}
+		rvmInstallCmd = exec.Command("rvm", "install", "--autolibs=disabled", "--with-openssl-dir="+filePath, rubyVersion.String())
 	} else {
-		cmd2 = exec.Command("rvm", "install", rubyVersion.String())
+		rvmInstallCmd = exec.Command("rvm", "install", rubyVersion.String())
 	}
-	cmd2.Dir = repoFolder
-	var so saveOutput
-	cmd2.Stdout = &so
-	cmd2.Stderr = &so
+	rvmInstallCmd.Dir = repoFolder
+	var rvmInstallSavedOutput saveOutput
+	rvmInstallCmd.Stdout = &rvmInstallSavedOutput
+	rvmInstallCmd.Stderr = &rvmInstallSavedOutput
 
 	logger.Info("Installing Ruby version with RVM, this may take a while")
 
-	err := cmd2.Run()
+	err := rvmInstallCmd.Run()
 
 	if err != nil {
 		logger.WithError(err).Error("failed to  rvm install")
 
 		re := regexp.MustCompile(`please read (.+\.log)`)
-		match := re.FindStringSubmatch(string(so.savedOutput))
+		match := re.FindStringSubmatch(string(rvmInstallSavedOutput.savedOutput))
 
 		if len(match) < 2 {
 			logger.Warn("No log file to read?")
