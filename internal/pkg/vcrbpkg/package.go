@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/relaxnow/vcrbpkg/internal/pkg/logger"
@@ -327,8 +328,7 @@ func rvmInstallRuby(repoFolder string, rubyVersion Version) error {
 
 // Function to remove trailing dots
 func removeTrailingDots(input string) string {
-	re := regexp.MustCompile(`\.+$`)
-	return re.ReplaceAllString(input, "")
+	return strings.TrimRight(input, ".")
 }
 
 // Test which environment works best to by running `rails server`
