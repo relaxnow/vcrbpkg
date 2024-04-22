@@ -1,5 +1,7 @@
 # vcrbpkg
 
+# DEPRECATED, PLEASE USE THE OFFICIAL PACKAGER AT: https://docs.veracode.com/r/About_auto_packaging
+
 Unofficial community project automated packaging for Ruby on Rails applications for Veracode Static Analysis.
 
 ## What you **must** know about packaging Ruby on Rails applications with Veracode Static Analysis
